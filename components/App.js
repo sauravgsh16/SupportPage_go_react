@@ -3,6 +3,8 @@ import ChannelSection from './channels/ChannelSection';
 import UserSection from './users/UserSection';
 import MessageSection from './messages/MessageSection';
 
+import Socket from '../socket';
+
 class App extends Component {
   constructor(props) {
     super(props)
@@ -10,36 +12,98 @@ class App extends Component {
       channels: [],
       users: [],
       messages: [],
-      activeChannel: {}
+      activeChannel: {},
+      connected: false
     }
   }
 
-  addChannel(name) {
+  componentDidMount() {
+    let socket = this.socket = new Socket();
+    socket.on('connect', this.onConnect.bind(this));
+    socket.on('disconnect', this.onDisconnect.bind(this));
+    socket.on('channel add', this.onAddChannel.bind(this));
+    socket.on('user add', this.onAddUser.bind(this));
+    socket.on('user edit', this.onEditUser.bind(this));
+    socket.on('user remove', this.onRemoveUser.bind(this));
+    socket.on('message add', this.onAddMessage.bind(this));
+  }
+
+  onConnect() {
+    this.setState({ connected: true });
+    // We want messages from the active Channel, so app should start and stop
+    // feed as and when needed.
+    // Thus, we subscribe for a channel and a user when we know that we are connected.
+    this.socket.emit('channel subscribe');
+    this.socket.emit('user subscribe');
+  }
+
+  onDisconnect() {
+    this.setState({ coonnected: false });
+  }
+
+  onAddChannel(channel) {
     let { channels } = this.state;
-    channels.push({ id: channels.length, name })
+    channels.push(channel);
     this.setState({ channels });
-    // TODO: send to server
+  }
+
+  onAddUser(user) {
+    let { users } = this.state;
+    users.push(user);
+    this.setState({ users });
+  }
+
+  onEditUser(editUser) {
+    let { users } = this.state;
+    users = users.map(user => {
+      if (editUser.id === user.id) {
+        return editUser;
+      }
+      return user;
+    });
+    this.setState({ users });
+  }
+
+  onRemoveUser(removeUser) {
+    let { users } = this.state;
+    users = users.filter(user => {
+      if (removeUser.id !== user.id) {
+        return true
+      }
+      return false
+    });
+    this.setState({ users });
+  }
+
+  onAddMessage(message) {
+    let { messages } = this.state;
+    messages.push(message);
+    this.setState({ messages })
+  }
+
+  addChannel(name) {
+    this.socket.emit('channel add', { name });
   }
 
   setChannel(activeChannel) {
     this.setState({ activeChannel });
-    // TODO: get latest message for that channel
+    // Here we set an message unsubscribe to stop any previously started data feeds
+    // And set messages to empty array which will remove any messages selected 
+    // from the last selected channel
+    this.socket.emit('message unsubscribe');
+    this.setState({ messages: [] });
+    // Now we send the message subscribe event with the channelId of the active channel
+    this.socket.emit('message subscribe', { channelId: activeChannel.id })
   }
 
   setUserName(name) {
-    let { users } = this.state;
-    users.push({ id: users.length, name })
-    this.setState({ users });
+    this.socket.emit('user edit', { name });
     // TODO: send to server
   }
 
   addMessage(body) {
-    let { messages, users } = this.state;
-    let createdAt = new Date;
-    let author = users.length > 0 ? users[0].name : 'anonymous';
-    messages.push({ id: messages.length, body, createdAt, author });
-    this.setState({ messages });
-    // TODO: send to server
+    let { activeChannel } = this.state;
+    this.socket.emit('message add', { channelId: activeChannel.id, body });
   }
 
   render() {
